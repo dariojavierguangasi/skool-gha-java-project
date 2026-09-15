@@ -46,6 +46,7 @@ public class HelloController {
 
     @GetMapping("/api/hello")
     public Map<String, Object> hello() {
+        
         log.info("GET /api/hello invocado - app={} version={}", appName, appVersion);
         return Map.of(
                 "app", appName,
