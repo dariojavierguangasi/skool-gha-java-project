@@ -1,11 +1,10 @@
 name: Pipeline Project
 
 on:
-    pull_request:
-      branches:
-        - main
-      types:
-        - closed
+  pull_request:
+    types:
+      - closed
+
 # github.event.pull_request.merged == true
 
 jobs:
@@ -15,49 +14,42 @@ jobs:
     permissions:
       contents: read
       packages: write
-      actions: write
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
-
     - name: Set up Docker
       uses: docker/setup-docker-action@v5
     
-    - name: Login to Docker Hub
+    - name: Login to GitHub Container Registry
       uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    
+        password: ${{ secrets.GITHUB_TOKEN}}
     - name: Build and push
       uses: docker/build-push-action@v7
       with:
         push: true
-        tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
-            ghcr.io/${{ github.repository }}:v${{ github.run_number }}
+        tags: ghcr.io/${{ github.repository }}:latest
         context: .
-        cache-from: type=gha
-        cache-to: type=gha,mode=max,ignore-error=true
+        file: Dockerfile
 
-  unit-tests:
+  unit-test:
     runs-on: ubuntu-latest
     if: ${{ github.event.pull_request.merged == true }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
     - name: Set up Java
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@v6
       with:
-        distribution: 'temurin'
+        distribution: temurin
         java-version: '25'
         cache: 'maven'
-
-    - name: Run unit tests
+    
+    - name: Run with test
       run: mvn test
-
+  
   sonar-analysis:
     runs-on: ubuntu-latest
     if: ${{ github.event.pull_request.merged == true }}
@@ -65,92 +57,50 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
       with:
-        # Disabling shallow clones is recommended for improving the relevancy of reporting
         fetch-depth: 0
-
     - name: SonarQube Scan
-      id: sonar-analysis
-      continue-on-error: true
-      uses: SonarSource/sonarqube-scan-action@v8 # toJSON(steps.<step-id>.outputs)
+      uses: SonarSource/sonarqube-scan-action@v8
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-    - name: SonarQube Quality Gate
-      id: sonar-quality-gate
-      uses: sonarsource/sonarqube-quality-gate-action@v1
-      with:
-        pollingTimeoutSec: 60
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-
-  snyk-analysis:
+  snik-analyze:
     runs-on: ubuntu-latest
     if: ${{ github.event.pull_request.merged == true }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
-
     - name: Snyk Code Scan
-      id: snyk-analysis
-      continue-on-error: true
       uses: snyk/actions/maven@v1.0.0
       env:
         SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      with:
-        json: true
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: snyk-analysis
-        path: snyk.json
-
-  publish-artifacts:
+    
+  publish-artifact:
     runs-on: ubuntu-latest
     if: ${{ github.event.pull_request.merged == true }}
-    outputs:
-      ar-name: ${{ steps.artifact-name.outputs.ar-name }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
-
     - name: Set up Java
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@v6
       with:
-        distribution: 'temurin'
+        distribution: temurin
         java-version: '25'
         cache: 'maven'
+    - name: Generate artifact
+      run: mvn -q -B dependency:go-offline 
 
-    - name: Generate Artifacts
-      run: mvn -q -B dependency:go-offline
-
-    - name: Build and package
+    - name: Build and Package
       run: mvn -q -B -DskipTests package
-
-    - name: Upload artifacts
+    
+    - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:
         name: popshop-artifact
-        path: target/popshop-0.1.0.jar
-
-    - name: Artifactory name
-      id: artifact-name
-      run: echo "ar-name=popshop-artifact-${{ github.sha }}" >> $GITHUB_OUTPUT
-    
+        path: target/popshop-0.1.0.jar 
+  
   consolidation-job:
-    if: ${{ github.event.pull_request.merged == true }}
-    needs: [build, unit-tests, sonar-analysis, snyk-analysis, publish-artifacts]
+    needs: [build, unit-test, sonar-analysis, snik-analyze, publish-artifact]
     runs-on: ubuntu-latest
     steps:
-    - name: Reporte Final
-      run: echo "El pipeline ha finalizado correctamente"
-
-    - name: "Echo Artifact Name"
-      run: echo "Artifact Name ${{ needs.publish-artifacts.outputs.ar-name }}"
-    
-    - name: Download Artifact Snyk
-      uses: actions/download-artifact@v8
-      with:
-        name: snyk-analysis
-        path: snyk.json
+    - name: Reporte final
+      run: echo "El pipeline se ejecuto correctamente"
